@@ -1,0 +1,40 @@
+<!-- Navivation header -->
+<nav class="navbar navbar-expand-sm fixed-top box-shadow navbar-light bg-light border-bottom">
+    <div class="container">
+        <!-- Logo -->
+        <a class="navbar-brand" href="/">
+            <img src="/static/images/black-logo.png" style="height: 30px"
+                 alt="">
+        </a>
+
+        <!-- Toggler for small screens-->
+        <button class="navbar-toggler" type="button" data-toggle="collapse"
+                data-target="#navbarText"
+                aria-controls="navbarText" aria-expanded="false"
+                aria-label="Toggle navigation">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+
+        <!-- Navigation links -->
+        <div class="collapse navbar-collapse col-4" id="navbarText">
+            <ul class="navbar-nav mr-auto ml-auto">
+                <li class="nav-item active">
+                    <a class="nav-link" href="/">Home</a>
+                </li>
+            </ul>
+            <ul class="navbar-nav mr-auto ml-auto">
+                <li class="nav-item active">
+                    <a class="nav-link" href="/creative/">Creative</a>
+                </li>
+            </ul>
+            {% if current_user %}
+                <ul class="navbar-nav mr-auto ml-auto btn btn-outline-danger btn-logout">
+                    <li class="nav-item active">
+                        <a class="nav-link  text-center"
+                           href="/logout">Logout</a>
+                    </li>
+                </ul>
+            {% endif %}
+        </div>
+    </div>
+</nav>

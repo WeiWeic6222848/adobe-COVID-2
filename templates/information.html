@@ -1,0 +1,877 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
+    <meta id="viewport" name="viewport"
+          content="width=device-width, initial-scale=1"/>
+    <title>UAntwerpen Learing Platform - {{ Course['identifier'] }}</title>
+    <script
+            src="https://code.jquery.com/jquery-3.5.1.min.js"
+            integrity="sha256-9/aliU8dGd2tb6OSsuzixeV4y/faTqgFtohetphbbj0="
+            crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.12.9/umd/popper.min.js"
+            integrity="sha384-ApNbgh9B+Y1QKtv3Rn7W3mgPxhU9K/ScQsAP7hUibX39j7fakFPskvXusvfa0b4Q"
+            crossorigin="anonymous"></script>
+    <!-- Google Analytics -->
+    <script>
+        window.ga = window.ga || function () {
+            (ga.q = ga.q || []).push(arguments)
+        };
+        ga.l = +new Date;
+        ga('create', '{{GoogleID}}', 'auto');
+        {#ga('send', 'event', event category, event action, event label, event value);#}
+        ga('send', 'event', 'COURSE_PAGE_VIEW', `{{ Course['identifier'] }}`, `{{ Course['identifier'] }}`, 1);
+        ga('send', 'pageview');
+    </script>
+    <script async src='https://www.google-analytics.com/analytics.js'></script>
+    <!-- End Google Analytics -->
+    <script src="https://documentcloud.adobe.com/view-sdk/main.js"></script>
+    <link rel="stylesheet"
+          href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css"
+          integrity="sha384-Gn5384xqQ1aoWXA+058RXPxPg6fy4IWvTNh0E263XmFcJlSAwiGgFAW/dAiS6JXm"
+          crossorigin="anonymous">
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/js/bootstrap.min.js"
+            integrity="sha384-JZR6Spejh4U02d8jOt6vLEHfe/JQGiRRSQQxSfFWpi1MquVdAyjUar5+76PVCmYl"
+            crossorigin="anonymous"></script>
+    <link rel="stylesheet" href="/static/css/default.css">
+</head>
+<body>
+
+{% include 'header.html' %}
+
+<div class="modal" id="viewmodal">
+    <img class="back-icon" src="/static/images/back-arrow.jpg" alt="Go back"
+         id="back-icon" onclick="CloseView()">
+    <div id="adobe-view" class="pdf-viewer modal-content col-12 content"></div>
+</div>
+<!-- Embedded pdf viewer -->
+<div class="flexbox h-100">
+    <div class="container content">
+        <h1>{{ Course["identifier"] }}</h1>
+        <h5><a href="#" onclick="RenderWhiteBoard()">My whiteboard</a></h5>
+        <hr>
+        {% if Course["lessons"]|length > 0 %}
+            <h2>Available Pdfs</h2>
+            <hr>
+            <br>
+            <div id="Course-Pdfs">
+                {% for lesson in Course["lessons"] %}
+                    <div class="row">
+                        <div class="col-2">
+                            <img src="/static/images/lesson.png"
+                                 alt="course.png"
+                                 style="min-height: 20px; ">
+                        </div>
+                        <div class="col-10">
+                            <h3>{{ lesson["identifier"] }}</h3>
+
+                            {% if current_user.role==2 %}
+                                <button class="btn btn-danger"
+                                        style="margin-left: 10px"
+                                        onclick="DeleteLesson('{{ Course['identifier'] }}','{{ lesson['identifier'] }}')">
+                                    Delete Lesson
+                                </button>
+                            {% endif %}
+                            <hr>
+                            {% if lesson["pdfs"]|length > 0 %}
+                                {% for pdf in lesson["pdfs"] %}
+                                    <a href="#"
+                                       onclick="RenderPDF('{{ Course['identifier'] }}','{{ lesson['identifier'] }}','{{ pdf['identifier'] }}','{{ pdf['uuid'] }}')">{{ pdf['identifier'] }}</a>
+                                    {% if current_user.role==2 %}
+                                        <button class="btn btn-danger"
+                                                style="margin-left: 10px"
+                                                onclick="DeletePDF('{{ Course['identifier'] }}','{{ lesson['identifier'] }}','{{ pdf['identifier'] }}','{{ pdf['uuid'] }}')">
+                                            Delete PDF
+                                        </button>
+                                    {% endif %}
+                                    <br>
+                                {% endfor %}
+
+                            {% else %}
+                                <p>There're no PDFs available for this lesson
+                                    yet! check again later!</p>
+                            {% endif %}
+
+                            {% if current_user.role==2 %}
+                                <h5>Upload a new pdf?</h5>
+                                <form action="/newPDF/" method="post"
+                                      id="newPDFForm">
+                                    <input type="file" id="PDFFile"
+                                           accept="application/pdf"
+                                           required>
+                                    <input type="hidden" name="lesson"
+                                           value='{{ lesson['identifier'] }}'>
+                                    <input type="hidden" name="course"
+                                           value='{{ Course['identifier'] }}'>
+                                    <input type="submit"
+                                           class="btn btn-outline-info"
+                                           style="margin: auto">
+                                </form>
+                            {% endif %}
+                            <br><br>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+
+        {% else %}
+            <p>There're no lessons available for this course yet! check again
+                later!</p>
+        {% endif %}
+        {% if current_user.role==2 %}
+            <br>
+            <br>
+            <h5>Create a new lesson?</h5>
+            <form action="/newLesson/" method="post"
+                  id="newLessonForm">
+                <input type="text" name="lessonName" id="lessonName"
+                       placeholder="Lesson Name" required>
+                <input type="submit" class="btn btn-outline-info"
+                       style="margin: auto">
+            </form>
+        {% endif %}
+    </div>
+    {% include 'footer.html' %}
+</div>
+
+<script>
+    //event logger which holds information needed for some events.
+    var eventLogger = {
+        fileName: '',
+        pageRead: 0,
+        pageView: 0,
+        time: null,
+        pagetime: null,
+        websitetime: Date.now()
+    };
+
+    var adobeDCView; //cache of the div which contains the pdf viewer
+    var currentPreview; //cache for the current pdf promise.
+    var currentPDFuuid;//cache for the current pdf uuid
+    var currentPDFInformation = {course: "", lesson: "", pdfName: ""};//cache for the current pdf's informations
+    var updateTimer;//timer for retriggering the comment update.
+
+    //config for the pdf viewer.
+    const config = {
+        embedMode: "FULL_WINDOW",
+        defaultViewMode: "FIT_WIDTH",
+        showAnnotationTools: true,
+        showLeftHandPanel: true,
+        dockPageControls: true,
+        showPageControls: true,
+        enableAnnotationAPIs: true,
+        includePDFAnnotations: true
+    };
+
+    //callback profile for pdf viewer
+    const profile = {
+        userProfile: {
+            name: '{{ current_user.name }}',
+            email: '{{ current_user.email }}',
+        }
+    };
+
+
+    /**
+     * checks if the given pdf can be found in the server, if it can be found, load the pdf with the comments along.
+     * @param course,
+     * @param lesson,
+     * @param pdf,
+     * @param uuid,
+     */
+    function RenderPDF(course, lesson, pdf, uuid) {
+
+        document.getElementById("back-icon").style.zIndex = 0; //move the back-icon to background until the loading is done for better immersion.
+
+        adobeDCView = new AdobeDC.View({
+            clientId: '{{AdobeID}}',
+            divId: 'adobe-view'
+        });
+
+        var data = {'course': course, 'lesson': lesson, 'pdf': pdf}; //preparing data json for the query.
+
+        $.ajax({
+            url: '/courses/',
+            type: 'post',
+            data: data,
+            success: function (responds) {
+                //if the server can found the pdf back with it's comments.
+
+                //load the user profile.
+                adobeDCView.registerCallback(
+                    AdobeDC.View.Enum.CallbackType.GET_USER_PROFILE_API,
+                    function () {
+                        return new Promise((resolve, reject) => {
+                            resolve({
+                                code: AdobeDC.View.Enum.ApiResponseCode.SUCCESS,
+                                data: profile
+                            })
+                        })
+                    });
+
+                //load the pdf file
+                currentPreview = adobeDCView.previewFile(
+                    {
+                        content: {location: {url: `/static/Courses/${course}/${lesson}/${pdf}`}},
+                        metaData: {fileName: pdf, id: uuid},
+                    }, config);
+
+                //if any comment exists, load comments.
+                if (responds['data'].length > 0) {
+                    /* Use the annotation manager interface to invoke the commenting APIs*/
+                    currentPreview.then(function (adobeViewer) {
+                        adobeViewer.getAnnotationManager().then(function (annotationManager) {
+                            /* API to add annotations to PDF and return the updated PDF buffer */
+                            /* These APIs will work only when includePDFAnnotations is set to true in viewerConfig */
+                            annotationManager.addAnnotationsInPDF(responds['data'])
+                                .then(function (result) {
+                                })
+                                .catch(function (error) {
+                                    window.alert(error)
+                                });
+                        });
+                    });
+                }
+
+                //register callback for events to be sent to GA.
+                adobeDCView.registerCallback(AdobeDC.View.Enum.CallbackType.EVENT_LISTENER, function (event) {
+                        switch (event.type) {
+                            case "APP_RENDERING_DONE":
+                                document.getElementById("back-icon").style.zIndex = 999; //move the back-icon to the front whenever the loading is done.
+                                break;
+
+                            // 3 cases for the annotations, if they're not customly tagged, try to upload them to the server.
+                            case "ANNOTATION_ADDED":
+                                if (!event['data'].hasOwnProperty("locallystored")) {
+                                    if (event['data']['creator']['name'] === '{{ current_user.name }}') {
+                                        event['data']['belongsToPDF'] = currentPDFuuid;
+                                        UploadAnnotation(event);
+                                    } else {
+                                        //if the user tried to delete/update a comment/annotation of someone else. check for new comment immediately to ensure seamless experience.
+                                        CheckNewComments(true)
+                                    }
+                                }
+                                break;
+                            case "ANNOTATION_UPDATED":
+                                if (!event['data'].hasOwnProperty("locallystored")) {
+                                    if (event['data']['creator']['name'] === '{{ current_user.name }}') {
+                                        event['data']['belongsToPDF'] = currentPDFuuid;
+                                        UploadAnnotation(event);
+                                    } else {
+                                        //if the user tried to delete/update a comment/annotation of someone else. check for new comment immediately to ensure seamless experience.
+                                        CheckNewComments(true)
+                                    }
+                                }
+                                break;
+                            case "ANNOTATION_DELETED":
+                                if (!event['data'].hasOwnProperty("locallystored")) {
+                                    if (event['data']['creator']['name'] === '{{ current_user.name }}') {
+                                        event['data']['belongsToPDF'] = currentPDFuuid;
+
+                                        event['data']['deleting'] = "Y";
+                                        UploadAnnotation(event);
+                                    } else {
+                                        //if the user tried to delete/update a comment/annotation of someone else. check for new comment immediately to ensure seamless experience.
+                                        CheckNewComments(true)
+                                    }
+                                }
+                                break;
+
+                            //events for GA.
+                            case "DOCUMENT_OPEN":
+                                InitializeEventLogger(event);
+                                ga('send', 'event', 'DOCUMENT_OPEN', `course:${currentPDFInformation.course},lesson:${currentPDFInformation.lesson},name:${event.data.fileName}`, `${event.data.fileName} of ${currentPDFInformation.lesson} of ${currentPDFInformation.course}`, 1);
+                                ga('send', 'event', 'COURSE_DOCUMENT_OPEN', `course:${currentPDFInformation.course},lesson:${currentPDFInformation.lesson},name:${event.data.fileName}`, `${currentPDFInformation.course}`, 1);
+                                ga('send', 'event', 'LESSON_DOCUMENT_OPEN', `course:${currentPDFInformation.course},lesson:${currentPDFInformation.lesson},name:${event.data.fileName}`, `${currentPDFInformation.lesson} of ${currentPDFInformation.course}`, 1);
+                                break;
+                            case 'PAGE_VIEW':
+                                //when a page is openned, trigger a timer function to see if the user is actively reading the page and not just scrolling through.
+                                ReadingPage(event);
+                                eventLogger.pageView += 1;
+                                if (eventLogger.pagetime) {
+                                    var difference = Math.round((Date.now() - eventLogger.pagetime) / 1000); // divide 1000 to get second, round to int because GA doesn't like float values
+                                    ga('send', 'event', 'PAGE_TIME_SPENT', `time spent on ${event.data.pageNumber} of course:${currentPDFInformation.course},lesson:${currentPDFInformation.lesson},name:${event.data.fileName}`, `${event.data.pageNumber} of ${event.data.fileName} of ${currentPDFInformation.lesson} of ${currentPDFInformation.course}`, difference);
+                                }
+                                ga('send', 'event', 'PAGE_VIEW', `${event.data.pageNumber} of course:${currentPDFInformation.course},lesson:${currentPDFInformation.lesson},name:${event.data.fileName}`, `${event.data.pageNumber} of ${event.data.fileName} of ${currentPDFInformation.lesson} of ${currentPDFInformation.course}`, 1);
+                                ga('send', 'event', 'COURSE_PAGE_VIEW', `${event.data.pageNumber} of course:${currentPDFInformation.course},lesson:${currentPDFInformation.lesson},name:${event.data.fileName}`, `${currentPDFInformation.course}`, 1);
+                                ga('send', 'event', 'LESSON_PAGE_VIEW', `${event.data.pageNumber} of course:${currentPDFInformation.course},lesson:${currentPDFInformation.lesson},name:${event.data.fileName}`, `${currentPDFInformation.lesson} of ${currentPDFInformation.course}`, 1);
+                                break;
+                            case 'DOCUMENT_DOWNLOAD':
+                                ga('send', 'event', 'DOCUMENT_DOWNLOAD', `course:${currentPDFInformation.course},lesson:${currentPDFInformation.lesson},name:${event.data.fileName}`, `${event.data.fileName} of ${currentPDFInformation.lesson} of ${currentPDFInformation.course}`, 1);
+                                ga('send', 'event', 'COURSE_DOCUMENT_DOWNLOAD', `course:${currentPDFInformation.course},lesson:${currentPDFInformation.lesson},name:${event.data.fileName}`, `${currentPDFInformation.course}`, 1);
+                                ga('send', 'event', 'LESSON_DOCUMENT_DOWNLOAD', `course:${currentPDFInformation.course},lesson:${currentPDFInformation.lesson},name:${event.data.fileName}`, `${currentPDFInformation.lesson} of ${currentPDFInformation.course}`, 1);
+                                break;
+                            case 'DOCUMENT_PRINT':
+                                ga('send', 'event', 'DOCUMENT_PRINT', `course:${currentPDFInformation.course},lesson:${currentPDFInformation.lesson},name:${event.data.fileName}`, `${event.data.fileName} of ${currentPDFInformation.lesson} of ${currentPDFInformation.course}`, 1);
+                                ga('send', 'event', 'COURSE_DOCUMENT_PRINT', `course:${currentPDFInformation.course},lesson:${currentPDFInformation.lesson},name:${event.data.fileName}`, `${currentPDFInformation.course}`, 1);
+                                ga('send', 'event', 'LESSON_DOCUMENT_PRINT', `course:${currentPDFInformation.course},lesson:${currentPDFInformation.lesson},name:${event.data.fileName}`, `${currentPDFInformation.lesson} of ${currentPDFInformation.course}`, 1);
+                                break;
+                        }
+                    },
+                    {
+                        enablePDFAnalytics: true,
+                        enableAnnotationEvents: true
+                    });
+
+                //store the current pdf's information
+                currentPDFuuid = uuid;
+                currentPDFInformation.course = course;
+                currentPDFInformation.lesson = lesson;
+                currentPDFInformation.pdfName = pdf;
+
+                //start repeating the updating loop.
+                clearTimeout(updateTimer);
+                updateTimer = setTimeout(function () {
+                    CheckNewComments();
+                }, {{ CommentUpdateInterval }});
+
+                //display the pdf element as a modal(hidden when not used, and when used it will be full-screen).
+                $('#viewmodal').modal('show')
+            },
+            error: function (res) {
+                window.alert(res.responseText);
+            }
+        });
+    }
+
+    var uploadingAnnotation = null; //cache for the annotation currently uploading, we'll ignore the current uploading annotations when updating the new comments.
+
+    /**
+     * a function which tries uploads the annotation to the server
+     * @param event
+     **/
+    function UploadAnnotation(event) {
+        uploadingAnnotation = event['data'];//store the annotation.
+        var tmp = JSON.stringify(event['data']);
+        $.ajax({
+            url: '/annotation/',
+            type: 'post',
+            data: tmp,
+            contentType: 'application/json',
+            success: function (responds) {
+                //if the annotation is sucessfully updated, send events to GA about it
+                if (responds["result"] === "added") {
+                    ga('send', 'event', 'COMMENT_ADDED', `course:${currentPDFInformation.course},lesson:${currentPDFInformation.lesson},name:${responds['pdf']}`, `${responds['pdf']} of ${currentPDFInformation.lesson} of ${currentPDFInformation.course}`, 1);
+                    ga('send', 'event', 'COURSE_COMMENT_ADDED', `course:${currentPDFInformation.course},lesson:${currentPDFInformation.lesson},name:${responds['pdf']}`, `${currentPDFInformation.course}`, 1);
+                    ga('send', 'event', 'LESSON_COMMENT_ADDED', `course:${currentPDFInformation.course},lesson:${currentPDFInformation.lesson},name:${responds['pdf']}`, `${currentPDFInformation.lesson} of ${currentPDFInformation.course}`, 1);
+                    ga('send', 'event', 'TOOL_USED', `${responds['annotation']['target']['selector']['subtype']}`, `${responds['annotation']['target']['selector']['subtype']}`, 1);
+                    if (responds['annotation']['bodyValue'] === 'complete' || responds['annotation']['bodyValue'] === 'Complete') {
+                        ga('send', 'event', 'ASSIGNMENT_COMPLETE', `course:${currentPDFInformation.course},lesson:${currentPDFInformation.lesson},name:${responds['pdf']} by ${responds['email']}`, `${responds['pdf']} of ${currentPDFInformation.lesson} of ${currentPDFInformation.course}`, 1);
+                        ga('send', 'event', 'STUDENT_ASSIGNMENT_COMPLETE', `course:${currentPDFInformation.course},lesson:${currentPDFInformation.lesson},name:${responds['pdf']} by ${responds['email']}`, `${responds['email']}`, 1)
+                    }
+                } else if (responds["result"] === "deleted") {
+                    ga('send', 'event', 'COMMENT_DELETED', `course:${currentPDFInformation.course},lesson:${currentPDFInformation.lesson},name:${responds['pdf']}`, `${responds['pdf']} of ${currentPDFInformation.lesson} of ${currentPDFInformation.course}`, 1);
+                    ga('send', 'event', 'COURSE_COMMENT_DELETED', `course:${currentPDFInformation.course},lesson:${currentPDFInformation.lesson},name:${responds['pdf']}`, `${currentPDFInformation.course}`, 1);
+                    ga('send', 'event', 'LESSON_COMMENT_DELETED', `course:${currentPDFInformation.course},lesson:${currentPDFInformation.lesson},name:${responds['pdf']}`, `${currentPDFInformation.lesson} of ${currentPDFInformation.course}`, 1);
+                    ga('send', 'event', 'TOOL_USED', `${responds['annotation']['target']['selector']['subtype']}`, `${responds['annotation']['target']['selector']['subtype']}`, 1);
+                }
+                uploadingAnnotation = null;//reset the annotation
+            },
+            error: function (res) {
+                uploadingAnnotation = null;//reset the annotation
+                window.alert(res.responseText);
+                CheckNewComments(true);//check immediately for new comments to ensure seamless experience.
+            }
+        });
+    }
+
+    /**
+     * a function which tries to retrieve cnew comments from the server, it loops itself infinitely based on an interval.
+     * @param oneTime: if the function should repeat itself.
+     **/
+    function CheckNewComments(oneTime = false) {
+        var data = {'uuid': currentPDFuuid}; //prepare the data package.
+
+        if (!oneTime) {
+            //setup the timer for the next check.
+            clearTimeout(updateTimer);
+            updateTimer = setTimeout(function () {
+                CheckNewComments();
+            }, {{ CommentUpdateInterval }});
+        }
+
+        $.ajax({
+            url: '/newAnnotation/',
+            type: 'post',
+            data: data,
+            success: function (responds) {
+                UpdateCurrentAnnotations(responds);
+            },
+            error: function (res) {
+                window.alert(res.responseText);
+            }
+        });
+    }
+
+    /**
+     * similar to renderPDF, but specialized to load the user specific whiteboard.
+     * for detailed commentation, see RenderPDF function.
+     **/
+    function RenderWhiteBoard() {
+
+        document.getElementById("back-icon").style.zIndex = 0;
+        adobeDCView = new AdobeDC.View({
+            clientId: '{{AdobeID}}',
+            divId: 'adobe-view'
+        });
+
+        var data = {'course': '{{ Course["identifier"] }}'};// loading whiteboard per course.
+
+        $.ajax({
+            url: '/whiteboard/',
+            type: 'post',
+            data: data,
+            success: function (responds) {
+
+                adobeDCView.registerCallback(
+                    AdobeDC.View.Enum.CallbackType.GET_USER_PROFILE_API,
+                    function () {
+                        return new Promise((resolve, reject) => {
+                            resolve({
+                                code: AdobeDC.View.Enum.ApiResponseCode.SUCCESS,
+                                data: profile
+                            })
+                        })
+                    });
+
+
+                currentPreview = adobeDCView.previewFile(
+                    {
+                        content: {location: {url: `/static/pdfs/whiteboard.pdf`}},
+                        metaData: {
+                            fileName: "myWhiteBoard - {{ Course['identifier'] }}.pdf",
+                            id: 'd771a52a-dae3-11ea-87d0-0242ac130003' //static uuid.
+                        },
+                    }, config);
+
+                //add annotations received from the server
+                if (responds['data'].length > 0) {
+                    /* Use the annotation manager interface to invoke the commenting APIs*/
+                    currentPreview.then(function (adobeViewer) {
+                        adobeViewer.getAnnotationManager().then(function (annotationManager) {
+                            /* API to add annotations to PDF and return the updated PDF buffer */
+                            /* These APIs will work only when includePDFAnnotations is set to true in viewerConfig */
+                            annotationManager.addAnnotationsInPDF(responds['data'])
+                                .then(function (result) {
+                                })
+                                .catch(function (error) {
+                                    window.alert(error)
+                                });
+                        });
+                    });
+                }
+
+                adobeDCView.registerCallback(AdobeDC.View.Enum.CallbackType.EVENT_LISTENER, function (event) {
+                        switch (event.type) {
+                            case "APP_RENDERING_DONE":
+                                document.getElementById("back-icon").style.zIndex = 999;
+                                break;
+                            case "ANNOTATION_ADDED":
+                                if (!event['data'].hasOwnProperty("locallystored")) {
+                                    if (event['data']['creator']['name'] === '{{ current_user.name }}') {
+                                        event['data']['belongsToPDF'] = currentPDFuuid;
+                                        event['data']['course'] = '{{ Course['identifier'] }}'; //specific field for whiteboard comments
+                                        UploadWhiteboardAnnotation(event);
+                                    } else {
+                                        CheckNewWhiteBoardComments(true);
+                                    }
+                                }
+                                break;
+                            case "ANNOTATION_UPDATED":
+                                if (!event['data'].hasOwnProperty("locallystored")) {
+                                    if (event['data']['creator']['name'] === '{{ current_user.name }}') {
+                                        event['data']['belongsToPDF'] = currentPDFuuid;
+                                        event['data']['course'] = '{{ Course['identifier'] }}';
+                                        UploadWhiteboardAnnotation(event);
+                                    } else {
+                                        CheckNewWhiteBoardComments(true);
+                                    }
+                                }
+                                break;
+                            case "ANNOTATION_DELETED":
+                                if (!event['data'].hasOwnProperty("locallystored")) {
+                                    if (event['data']['creator']['name'] === '{{ current_user.name }}') {
+                                        event['data']['belongsToPDF'] = currentPDFuuid;
+                                        event['data']['course'] = '{{ Course['identifier'] }}';
+                                        event['data']['deleting'] = "Y";
+                                        UploadWhiteboardAnnotation(event);
+                                    } else {
+                                        CheckNewWhiteBoardComments(true);
+                                    }
+                                }
+                                break;
+                            case "DOCUMENT_OPEN":
+                                InitializeEventLogger(event);
+                                ga('send', 'event', 'DOCUMENT_OPEN', `course:${currentPDFInformation.course},lesson:${currentPDFInformation.lesson},name:${event.data.fileName}`, `${event.data.fileName} of ${currentPDFInformation.lesson} of ${currentPDFInformation.course}`, 1);
+                                ga('send', 'event', 'COURSE_DOCUMENT_OPEN', `course:${currentPDFInformation.course},lesson:${currentPDFInformation.lesson},name:${event.data.fileName}`, `${currentPDFInformation.course}`, 1);
+                                ga('send', 'event', 'LESSON_DOCUMENT_OPEN', `course:${currentPDFInformation.course},lesson:${currentPDFInformation.lesson},name:${event.data.fileName}`, `${currentPDFInformation.lesson} of ${currentPDFInformation.course}`, 1);
+                                break;
+                            case 'PAGE_VIEW':
+                                //when a page is openned, trigger a timer function to see if the user is actively reading the page and not just scrolling through.
+                                ReadingPage(event);
+                                eventLogger.pageView += 1;
+                                if (eventLogger.pagetime) {
+                                    var difference = Math.round((Date.now() - eventLogger.pagetime) / 1000); // divide 1000 to get second, round to int because GA doesn't like float values
+                                    ga('send', 'event', 'PAGE_TIME_SPENT', `time spent on ${event.data.pageNumber} of course:${currentPDFInformation.course},lesson:${currentPDFInformation.lesson},name:${event.data.fileName}`, `${event.data.pageNumber} of ${event.data.fileName} of ${currentPDFInformation.lesson} of ${currentPDFInformation.course}`, difference);
+                                }
+                                eventLogger.pagetime = Date.now();
+                                ga('send', 'event', 'PAGE_VIEW', `${event.data.pageNumber} of course:${currentPDFInformation.course},lesson:${currentPDFInformation.lesson},name:${event.data.fileName}`, `${event.data.pageNumber} of ${event.data.fileName} of ${currentPDFInformation.lesson} of ${currentPDFInformation.course}`, 1);
+                                ga('send', 'event', 'COURSE_PAGE_VIEW', `${event.data.pageNumber} of course:${currentPDFInformation.course},lesson:${currentPDFInformation.lesson},name:${event.data.fileName}`, `${currentPDFInformation.course}`, 1);
+                                ga('send', 'event', 'LESSON_PAGE_VIEW', `${event.data.pageNumber} of course:${currentPDFInformation.course},lesson:${currentPDFInformation.lesson},name:${event.data.fileName}`, `${currentPDFInformation.lesson} of ${currentPDFInformation.course}`, 1);
+                                break;
+                            case 'DOCUMENT_DOWNLOAD':
+                                ga('send', 'event', 'DOCUMENT_DOWNLOAD', `course:${currentPDFInformation.course},lesson:${currentPDFInformation.lesson},name:${event.data.fileName}`, `${event.data.fileName} of ${currentPDFInformation.lesson} of ${currentPDFInformation.course}`, 1);
+                                ga('send', 'event', 'COURSE_DOCUMENT_DOWNLOAD', `course:${currentPDFInformation.course},lesson:${currentPDFInformation.lesson},name:${event.data.fileName}`, `${currentPDFInformation.course}`, 1);
+                                ga('send', 'event', 'LESSON_DOCUMENT_DOWNLOAD', `course:${currentPDFInformation.course},lesson:${currentPDFInformation.lesson},name:${event.data.fileName}`, `${currentPDFInformation.lesson} of ${currentPDFInformation.course}`, 1);
+                                break;
+                            case 'DOCUMENT_PRINT':
+                                ga('send', 'event', 'DOCUMENT_PRINT', `course:${currentPDFInformation.course},lesson:${currentPDFInformation.lesson},name:${event.data.fileName}`, `${event.data.fileName} of ${currentPDFInformation.lesson} of ${currentPDFInformation.course}`, 1);
+                                ga('send', 'event', 'COURSE_DOCUMENT_PRINT', `course:${currentPDFInformation.course},lesson:${currentPDFInformation.lesson},name:${event.data.fileName}`, `${currentPDFInformation.course}`, 1);
+                                ga('send', 'event', 'LESSON_DOCUMENT_PRINT', `course:${currentPDFInformation.course},lesson:${currentPDFInformation.lesson},name:${event.data.fileName}`, `${currentPDFInformation.lesson} of ${currentPDFInformation.course}`, 1);
+                                break;
+                        }
+                    },
+                    {
+                        enablePDFAnalytics: true,
+                        enableAnnotationEvents: true
+                    });
+
+                currentPDFuuid = 'd771a52a-dae3-11ea-87d0-0242ac130003';
+                currentPDFInformation.course = '{{ Course['identifier'] }}';
+                currentPDFInformation.lesson = 'whiteboard';
+                currentPDFInformation.pdfName = "myWhiteBoard - {{ Course['identifier'] }}.pdf";
+
+                clearTimeout(updateTimer);
+                updateTimer = setTimeout(function () {
+                    CheckNewWhiteBoardComments();
+                }, {{ CommentUpdateInterval }});
+
+                $('#viewmodal').modal('show')
+            },
+            error: function (res) {
+                window.alert(res.responseText);
+            }
+        });
+    }
+
+    /**
+     * similar to UploadAnnotation, for detailed commentation, see UploadAnnotation.
+     **/
+    function UploadWhiteboardAnnotation(event) {
+        uploadingAnnotation = event['data'];//store the annotation.
+        var tmp = JSON.stringify(event['data']);
+        tmp['course'] = '{{ Course['identifier'] }}';
+        $.ajax({
+            url: '/whiteboardAnnotation/',
+            type: 'post',
+            data: tmp,
+            contentType: 'application/json',
+            success: function (responds) {
+                //if the annotation is sucessfully updated, send events to GA about it
+                if (responds["result"] === "added") {
+                    ga('send', 'event', 'COMMENT_ADDED', `course:${currentPDFInformation.course},lesson:whiteboard,name:myWhiteBoard - {{ Course['identifier'] }}.pdf`, `myWhiteBoard - {{ Course['identifier'] }}.pdf`, 1);
+                    ga('send', 'event', 'COURSE_COMMENT_ADDED', `course:${currentPDFInformation.course},lesson:whiteboard,name:myWhiteBoard - {{ Course['identifier'] }}.pdf`, `${currentPDFInformation.course}`, 1);
+                    ga('send', 'event', 'LESSON_COMMENT_ADDED', `course:${currentPDFInformation.course},lesson:whiteboard,name:myWhiteBoard - {{ Course['identifier'] }}.pdf`, `${currentPDFInformation.lesson} of ${currentPDFInformation.course}`, 1);
+                    ga('send', 'event', 'TOOL_USED', `${responds['annotation']['target']['selector']['subtype']}`, `${responds['annotation']['target']['selector']['subtype']}`, 1);
+                } else if (responds["result"] === "deleted") {
+                    ga('send', 'event', 'COMMENT_DELETED', `course:${currentPDFInformation.course},lesson:whiteboard,name:myWhiteBoard - {{ Course['identifier'] }}.pdf`, `myWhiteBoard - {{ Course['identifier'] }}.pdf`, 1);
+                    ga('send', 'event', 'COURSE_COMMENT_DELETED', `course:${currentPDFInformation.course},lesson:whiteboard,name:myWhiteBoard - {{ Course['identifier'] }}.pdf`, `${currentPDFInformation.course}`, 1);
+                    ga('send', 'event', 'LESSON_COMMENT_DELETED', `course:${currentPDFInformation.course},lesson:whiteboard,name:myWhiteBoard - {{ Course['identifier'] }}.pdf`, `${currentPDFInformation.lesson} of ${currentPDFInformation.course}`, 1);
+                    ga('send', 'event', 'TOOL_USED', `${responds['annotation']['target']['selector']['subtype']}`, `${responds['annotation']['target']['selector']['subtype']}`, 1);
+                }
+                uploadingAnnotation = null;//reset the annotation
+            },
+            error: function (res) {
+                uploadingAnnotation = null;//reset the annotation
+                window.alert(res.responseText);
+                CheckNewWhiteBoardComments(true);
+            }
+        });
+    }
+
+    /**
+     * similar to CheckNewComments. for detailed commentation, see CheckNewCommentation.
+     **/
+    function CheckNewWhiteBoardComments(oneTime = false) {
+
+        if (!oneTime) {
+            clearTimeout(updateTimer);
+            updateTimer = setTimeout(function () {
+                CheckNewWhiteBoardComments();
+            }, {{ CommentUpdateInterval }});
+        }
+
+        var data = {'course': '{{ Course['identifier'] }}'};
+
+        $.ajax({
+            url: '/newWhiteboardAnnotation/',
+            type: 'post',
+            data: data,
+            success: function (responds) {
+                UpdateCurrentAnnotations(responds);
+            },
+            error: function (res) {
+                window.alert(res.responseText);
+            }
+        });
+    }
+
+    function UpdateCurrentAnnotations(responds) {
+        //check the current view to see if annotation exists.
+        /* Use the annotation manager interface to invoke the commenting APIs*/
+        currentPreview.then(function (adobeViewer) {
+            adobeViewer.getAnnotationManager().then(function (annotationManager) {
+                annotationManager.getAnnotations()// get all the annotations currently in the pdf
+                    .then(result => {
+                        var foundindex = [];//keep which anotation from the server are found
+
+                        for (var resultIndex in result) {
+                            var localAnno = result[resultIndex];//get local annotation
+                            //if the annotation is currently uploading, ignore it.
+                            if (uploadingAnnotation !== null) {
+                                if (uploadingAnnotation['id'] === localAnno['id']) {
+                                    continue;
+                                }
+                            }
+
+                            var found = false;
+                            //loop over the server's responds to find the same annotation
+                            for (var annotationIndex in responds['data']) {
+
+                                var serverAnno = responds['data'][annotationIndex]; //find local annotation in server responds
+                                if (serverAnno["id"] === localAnno["id"]) {
+
+                                    found = true;
+                                    foundindex.push(annotationIndex); //if found, mark
+
+
+                                    var currentText = localAnno["bodyValue"]; //check if we need to update, because the update doesn't change modify date(very weird), we can't just simply update.
+                                    var serverText = serverAnno["bodyValue"];
+
+                                    if (serverText != currentText) {
+                                        serverAnno['locallystored'] = true;
+                                        annotationManager.updateAnnotation(serverAnno)
+                                            .then(function (result) {
+                                            })
+                                            .catch(function (error) {
+                                                window.alert(error)
+                                            });
+                                    }
+                                }
+                            }
+
+                            //if not found, delete the local annotation
+                            if (!found) {
+                                filter = {annotationIds: [localAnno["id"]]};
+                                annotationManager.deleteAnnotations(filter)
+                                    .then(function (result) {
+                                    })
+                                    .catch(function (error) {
+                                        window.alert(error)
+                                    });
+
+                            }
+                        }
+
+                        //check and add the server annotations which we couldn't find a match in the local pdf.
+                        for (var annotationIndex in responds['data']) {
+                            if (foundindex.length > 0) { //check if there are server annotation left out, since we traversed the indexes from 0 to end, the foundindex is also from 0 to end.
+                                if (annotationIndex == foundindex[0]) {
+                                    foundindex.shift(); //so we know it's always growing, we can assume if we don't match first, we don't match all index in the foundindex.
+                                    continue;
+                                }
+                            }
+                            //if it's a annotation currently being uploaded (weird but just in case), ignore it
+                            if (uploadingAnnotation !== null) {
+                                if (uploadingAnnotation['id'] === responds['data'][annotationIndex]['id']) {
+                                    continue;
+                                }
+                            }
+
+                            annotationManager.addAnnotationsInPDF([responds['data'][annotationIndex]]) // add the server annotation to current pdf.
+                                .then(function (result) {
+                                })
+                                .catch(function (error) {
+                                    window.alert(error)
+                                });
+                        }
+                    })
+                    .catch(error => window.alert(error));
+            });
+        });
+    }
+
+    var timer;//timer for page read event.
+
+
+    /**
+     * clean up jobs when the user exits a pdf.
+     **/
+    function CloseView() {
+        //send the logged events.
+        SendLoggedEvents();
+
+        //reset eventLogger
+        eventLogger.pageView = 0;
+        eventLogger.pageRead = 0;
+        eventLogger.fileName = '';
+        eventLogger.time = null;
+
+        $('#viewmodal').modal('hide');//hide the pdf.
+
+        //clear the read page timer and update comment timer
+        clearTimeout(updateTimer);
+        clearTimeout(timer);
+
+        //reset the pdf informations
+        currentPDFuuid = null;
+        currentPDFInformation.course = "";
+        currentPDFInformation.pdfName = "";
+        currentPDFInformation.lesson = "";
+    }
+
+    //sends the information in eventlogger before user exits the window.
+    window.onunload = function () {
+        SendLoggedEvents();
+        //sent the time spent on course page by a specific student.
+        if (eventLogger.websitetime) {
+            var difference = Math.round((Date.now() - eventLogger.websitetime) / 1000); // divide 1000 to get second, round to int because GA doesn't like float values
+            ga('send', 'event', 'STUDENT_WEBSITE_TIME_SPENT', 'time spent on any course page', '{{ current_user.email }}', difference);
+            ga('send', 'event', 'COURSE_TIME_SPENT', 'time spent on {{ Course['identifier'] }}', '{{ Course['identifier'] }}', difference);
+        }
+    };
+
+
+    /**
+     * A small helper function which set/reset the timer each time the user scrolls to a new page, if the timer expires, a PAGE_READ event will be sent.
+     * @param event the event which triggered this function
+     */
+    function ReadingPage(event) {
+        if (timer) {
+            clearTimeout(timer); //cancel the previous timer.
+        }
+        timer = setTimeout(function () {
+            PageRead(event);
+        }, {{ReadPageInterval}}); //wait for the setted second before sending the PageRead event.
+    }
+
+
+    /**
+     * sending a PAGE_READ event to GA
+     * @param event
+     */
+    function PageRead(event) {
+        eventLogger.pageRead += 1;
+        ga('send', 'event', 'PAGE_READ', `${event.data.pageNumber} of course:${currentPDFInformation.course},lesson:${currentPDFInformation.lesson},name:${event.data.fileName}`, `${event.data.pageNumber} of ${event.data.fileName} of ${currentPDFInformation.lesson} of ${currentPDFInformation.course}`, 1);
+        ga('send', 'event', 'COURSE_PAGE_READ', `${event.data.pageNumber} of course:${currentPDFInformation.course},lesson:${currentPDFInformation.lesson},name:${event.data.fileName}`, `${currentPDFInformation.course}`, 1);
+        ga('send', 'event', 'LESSON_PAGE_READ', `${event.data.pageNumber} of course:${currentPDFInformation.course},lesson:${currentPDFInformation.lesson},name:${event.data.fileName}`, `${currentPDFInformation.lesson} of ${currentPDFInformation.course}`, 1);
+    }
+
+    /**
+     * clears the eventLogger and initialize it again.
+     * @param event A DOCUMENT_OPEN event
+     */
+    function InitializeEventLogger(event) {
+        eventLogger.fileName = event.data.fileName;
+        eventLogger.pageRead = 0;
+        eventLogger.pageView = 1; //compensate for the lost pageview.(pageview event triggers before document open event.)
+        eventLogger.time = Date.now();
+        eventLogger.pagetime = Date.now();
+    }
+
+
+    /**
+     * a funciton which sends the events logged inside the event logger to GA
+     */
+    function SendLoggedEvents() {
+        //only send if eventlogger is meaningful, aka is marked for a document
+        if (eventLogger.fileName !== '') {
+            ga('send', 'event', 'TOTAL_PAGE_VIEW', `course:${currentPDFInformation.course},lesson:${currentPDFInformation.lesson},name:${eventLogger.fileName}`, `${eventLogger.fileName} of ${currentPDFInformation.lesson} of ${currentPDFInformation.course}`, eventLogger.pageView);
+            ga('send', 'event', 'TOTAL_PAGE_READ', `course:${currentPDFInformation.course},lesson:${currentPDFInformation.lesson},name:${eventLogger.fileName}`, `${eventLogger.fileName} of ${currentPDFInformation.lesson} of ${currentPDFInformation.course}`, eventLogger.pageRead);
+            if (eventLogger.time) {
+                var difference = Math.round((Date.now() - eventLogger.time) / 1000); // divide 1000 to get second, round to int because GA doesn't like float values
+                ga('send', 'event', 'TOTAL_PDF_TIME_SPENT', `course:${currentPDFInformation.course},lesson:${currentPDFInformation.lesson},name:${eventLogger.fileName}`, `${eventLogger.fileName} of ${currentPDFInformation.lesson} of ${currentPDFInformation.course}`, difference);
+            }
+        }
+    }
+
+    $('#newLessonForm').on('submit', function (e) {
+        e.preventDefault();
+        var data = $(this).serializeArray(); // convert form to array
+        data.push({
+            name: "course",
+            value: '{{ Course['identifier'] }}'
+        });
+
+        $.ajax({
+            url: '/newLesson/',
+            type: 'post',
+            data: data,
+            success: function (responds) {
+                window.location.reload();
+            },
+            error: function (res) {
+                window.alert(res.responseText);
+            }
+        });
+    });
+
+    $('#newPDFForm').on('submit', function (e) {
+        e.preventDefault();
+        var form = document.getElementById('newPDFForm');
+        {#var data = $(this).serializeArray(); // convert form to array#}
+        var formdata = new FormData(form);
+        formdata.append('file', $('#PDFFile').prop('files')[0]);
+        $.ajax({
+            url: '/newPDF/',
+            type: 'post',
+            data: formdata,
+            processData: false,
+            contentType: false,
+            success: function (responds) {
+                window.location.reload();
+            },
+            error: function (res) {
+                window.alert(res.responseText);
+            }
+        });
+    });
+
+    function DeleteLesson(courseID, lessonID) {
+        var data = {'course': courseID, 'lesson': lessonID};
+        $.ajax({
+            url: '/deleteLesson/',
+            type: 'post',
+            data: data,
+            success: function (responds) {
+                window.location.reload();
+            },
+            error: function (res) {
+                window.alert(res.responseText);
+            }
+        });
+    }
+
+    function DeletePDF(courseID, lessonID, PDF, UUID) {
+        var data = {
+            'course': courseID,
+            'lesson': lessonID,
+            'pdf': PDF,
+            'uuid': UUID
+        };
+        $.ajax({
+            url: '/deletePDF/',
+            type: 'post',
+            data: data,
+            success: function (responds) {
+                window.location.reload();
+            },
+            error: function (res) {
+                window.alert(res.responseText);
+            }
+        });
+    }
+</script>
+</body>
+</html>
